@@ -1,0 +1,79 @@
+heat_template_version: 2018-03-02
+description: "create test server"
+
+resources:
+
+  selenium_net:
+    type: OS::Neutron::Net
+    properties: 
+      name: "selenium-net"
+      
+  selenium_subnet:
+    type: OS::Neutron::Subnet
+    depends_on: [ selenium_net ]
+    properties:
+      name: "selenium-subnet"
+      dns_nameservers:
+        - 8.8.8.8
+        - 8.8.4.4
+      network: { get_resource: selenium_net }
+      ip_version: 4
+      cidr: 10.0.10.0/24
+      allocation_pools:
+      - {start: 10.0.10.10, end: 10.0.10.250}
+    
+  selenium_router:
+    type: OS::Neutron::Router
+    properties:
+      external_gateway_info: {"network": "External_network"}
+      name: "selenium_router"
+
+  selenium_router_interface:
+    type: OS::Neutron::RouterInterface
+    depends_on: [ selenium_router, selenium_subnet ]
+    properties:
+      router: { get_resource: selenium_router }
+      subnet: { get_resource: selenium_subnet }
+
+  selenium_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: allow incoming SSH and ICMP traffic from anywhere.
+      name: "selenium-security-group"
+      rules: 
+        - { direction: ingress, remote_ip_prefix: 0.0.0.0/0, port_range_min: 22, port_range_max: 22, protocol: tcp } 
+        - { direction: ingress, remote_ip_prefix: 0.0.0.0/0, protocol: icmp }   
+ 
+  selenium_port:
+    type: OS::Neutron::Port
+    depends_on: [ selenium_subnet, selenium_security_group ]
+    properties:
+      network: { get_resource: selenium_net } 
+      fixed_ips:
+        - subnet_id: "selenium-subnet"
+      security_groups: [ get_resource: selenium_security_group ]  
+      
+  selenium_server:
+    type: OS::Nova::Server
+    depends_on: [ selenium_port ]
+    properties:
+      name: "selenium-server"
+      image: "cirros-0.4.0" 
+      flavor: B1.medium 
+      networks:
+        - port: { get_resource: selenium_port }
+      user_data_format: RAW
+      user_data: |
+        #cloud-config
+        chpasswd: { expire: False }
+        ssh_pwauth: True
+        password: 1Password
+        users:
+        - default
+        
+#  selenium_floating_ip:
+#    type: OS::Neutron::FloatingIP
+#    depends_on: [ selenium_server ]
+#    properties:
+#      floating_network_id: "external"
+#      port_id: { get_resource: selenium_port }
